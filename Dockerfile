@@ -2,19 +2,7 @@ ARG PYTHON_VERSION=python-3.8.8
 ARG BASE_IMAGE=jupyter/scipy-notebook
 FROM $BASE_IMAGE:$PYTHON_VERSION
 
-LABEL org.opencontainers.image.source="https://github.com/MaastrichtU-IDS/jupyterlab"
-
-# APACHE_SPARK_VERSION=3.0.1 and HADOOP_VERSION=3.2
-# APACHE_SPARK_VERSION=2.4.5 and HADOOP_VERSION=2.7 -> Requires python 3.7 and java 8
-ARG APACHE_SPARK_VERSION=3.2.1
-ARG HADOOP_VERSION=3.2
-ENV APACHE_SPARK_VERSION=$APACHE_SPARK_VERSION \
-    HADOOP_VERSION=$HADOOP_VERSION \
-    JUPYTER_ENABLE_LAB=yes
-    # GRANT_SUDO=yes
-    # CHOWN_HOME=yes \
-    # CHOWN_HOME_OPTS='-R'
-
+LABEL org.opencontainers.image.source="https://github.com/MaastrichtU-IDS/jupyterlab://github.com/ccnmaastricht/jupyterlab_msb1013"
 
 # Install yarn for handling npm packages
 RUN npm install --global yarn
@@ -32,18 +20,13 @@ RUN mamba install --quiet -y \
       jupyterlab-git \
       jupyterlab-lsp \
       jupyter-lsp-python \
-      jupyter_bokeh \
+      jupyter_bokeh \ 
       jupyterlab-drawio \
       rise \
       pyspark=$APACHE_SPARK_VERSION \
       nb_conda_kernels \
       'jupyter-server-proxy>=3.1.0' && \
     mamba install -y -c plotly 'plotly>=4.8.2'
-
-    ## Install BeakerX kernels (requires python 3.7):
-    # mamba install -y -c beakerx \
-    #   beakerx_kernel_java \
-    #   beakerx_kernel_scala
 
 
 RUN pip install --upgrade pip && \
@@ -55,9 +38,15 @@ RUN pip install --upgrade pip && \
     #   pyspark==$APACHE_SPARK_VERSION \
       jupyterlab-system-monitor
 
-    ## Could also be interesting to install:
-    #   jupyterlab_theme_solarized_dark \
-    #   elyra (pipeline builder for Kubeflow and Airflow)
+RUN conda install nb_conda_kernels 
+
+# create environment for NEURON simulation environment 
+RUN conda create --name neuron_env python=$PYTHON_VERSION \ 
+                  ipykernel \ 
+                  numpy \ 
+                  scipy \ 
+                  matplotlib \ 
+                  seaborn 
 
 
 # Change to root user to install things
@@ -74,51 +63,7 @@ RUN wget -O /opt/ijava-kernel.zip https://github.com/SpencerPark/IJava/releases/
     python install.py --sys-prefix && \
     rm /opt/ijava-kernel.zip
 
-# Install VS Code server and extensions
-RUN curl -fsSL https://code-server.dev/install.sh | sh
-RUN code-server --install-extension redhat.vscode-yaml \
-        --install-extension ms-python.python \
-        --install-extension vscjava.vscode-java-pack \
-        --install-extension ginfuru.ginfuru-better-solarized-dark-theme \
-        --install-extension oderwat.indent-rainbow \
-        --install-extension mutantdino.resourcemonitor \
-        --install-extension mechatroner.rainbow-csv \
-        --install-extension GrapeCity.gc-excelviewer \
-        --install-extension tht13.html-preview-vscode \
-        --install-extension mdickin.markdown-shortcuts \
-        --install-extension redhat.vscode-xml \
-        --install-extension nickdemayo.vscode-json-editor \
-        --install-extension ms-mssql.mssql \
-        # --install-extension ms-azuretools.vscode-docker \
-        --install-extension eamodio.gitlens 
-
-RUN cd /opt && \
-    export EXT_VERSION=0.1.2 && \
-    wget https://open-vsx.org/api/vemonet/stardog-rdf-grammars/$EXT_VERSION/file/vemonet.stardog-rdf-grammars-$EXT_VERSION.vsix && \
-    code-server --install-extension vemonet.stardog-rdf-grammars-$EXT_VERSION.vsix
-
-## Not compatible with web yet: https://github.com/janisdd/vscode-edit-csv/issues/67
-# RUN cd /opt && \
-#     export EXT_VERSION=0.6.4 && \
-#     wget https://github.com/janisdd/vscode-edit-csv/releases/download/v$EXT_VERSION/vscode-edit-csv-$EXT_VERSION.vsix && \
-#     code-server --install-extension vscode-edit-csv-$EXT_VERSION.vsix
-
-# Install open source gitpod VSCode? https://github.com/gitpod-io/openvscode-releases/blob/main/Dockerfile
-# ENV OPENVSCODE_SERVER_ROOT=/opt/openvscode \
-#     RELEASE_TAG=openvscode-server-v1.62.3
-# ENV LANG=C.UTF-8 \
-#     LC_ALL=C.UTF-8 \
-#     EDITOR=code \
-#     VISUAL=code \
-#     GIT_EDITOR="code --wait" \
-#     OPENVSCODE_SERVER_ROOT=${OPENVSCODE_SERVER_ROOT}
-# RUN wget https://github.com/gitpod-io/openvscode-server/releases/download/${RELEASE_TAG}/${RELEASE_TAG}-linux-x64.tar.gz && \
-#     tar -xzf ${RELEASE_TAG}-linux-x64.tar.gz && \
-#     mv -f ${RELEASE_TAG}-linux-x64 ${OPENVSCODE_SERVER_ROOT} && \
-#     rm -f ${RELEASE_TAG}-linux-x64.tar.gz
-
 # Add JupyterLab and VSCode settings
-COPY icons/*.svg /etc/jupyter/
 COPY jupyter_notebook_config.py /etc/jupyter/jupyter_notebook_config.py
 
 RUN fix-permissions $CONDA_DIR && \
@@ -141,16 +86,6 @@ RUN mkdir -p /home/$NB_USER/work
 # Update and compile JupyterLab extensions
 # RUN jupyter labextension update --all && \
 #     jupyter lab build 
-
-## Install Spark for standalone context in /opt
-ENV SPARK_HOME=/opt/spark \
-    SPARK_OPTS="--driver-java-options=-Xms1024M --driver-java-options=-Xmx2048M --driver-java-options=-Dlog4j.logLevel=info"
-ENV PATH=$PATH:$SPARK_HOME/bin
-RUN wget -q -O spark.tgz https://archive.apache.org/dist/spark/spark-${APACHE_SPARK_VERSION}/spark-${APACHE_SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz && \
-    tar xzf spark.tgz -C /opt && \
-    rm "spark.tgz" && \
-    ln -s "/opt/spark-${APACHE_SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}" $SPARK_HOME
-
 
 # Install Oh My ZSH! and custom theme
 RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
